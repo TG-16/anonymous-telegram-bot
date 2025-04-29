@@ -1,162 +1,144 @@
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require("node-telegram-bot-api");
+const fs = require("fs");
+const path = require("path");
 
-// Replace this with your bot token
-const token = process.env.BOT_TOKEN;
+const TOKEN = "7129991993:AAG-_X8hZv7R89w4aoK1TE2TvC8Ir29xxvs";
+const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Create a bot that uses 'polling' to fetch new updates
-const bot = new TelegramBot(token, { polling: true });
+const usersFilePath = path.join(__dirname, "users.json");
+let users = loadUsers();
+let cooldowns = {};
+const COOLDOWN_TIME = 10000; // 10 seconds
 
-// In-memory storage
-const users = {}; // userId => { signedUp: bool, isConnected: bool, partnerId: userId }
-const waitingUsers = []; // list of online users waiting to connect
+// Fixed keyboard buttons
+const fixedButtons = {
+    reply_markup: {
+        keyboard: [
+            [{ text: "🔍 Find" }, { text: "❌ Stop" }]
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false,
+        is_persistent: true
+    }
+};
+
+// Load users from file
+function loadUsers() {
+    if (fs.existsSync(usersFilePath)) {
+        const data = fs.readFileSync(usersFilePath, "utf8");
+        return JSON.parse(data);
+    }
+    return {};
+}
+
+// Save users to file
+function saveUsers() {
+    fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2));
+}
+
+// Add new user if not exists
+function addUser(userId) {
+    if (!users[userId]) {
+        users[userId] = {
+            id: userId,
+            isConnected: false,
+            partner: null
+        };
+        saveUsers();
+    }
+}
+
+// Find available user to match with
+function findAvailableUser(excludeId) {
+    const userIds = Object.keys(users);
+    for (let id of userIds) {
+        if (id !== excludeId && !users[id].isConnected) {
+            return id;
+        }
+    }
+    return null;
+}
 
 // Start command
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id.toString();
+    addUser(chatId);
 
-  if (!users[chatId]) {
-    users[chatId] = { signedUp: false, isConnected: false, partnerId: null };
-    await bot.sendMessage(chatId, `Welcome! Please /signup or /login to start chatting.`);
-  } else {
-    await bot.sendMessage(chatId, `Welcome back! Please /login to continue.`);
-  }
+    bot.sendMessage(chatId, "👋 Welcome to Anonymous Chat!\n\nUse 🔍 Find to connect with someone, or ❌ Stop to end the chat.", fixedButtons);
 });
 
-// Signup
-bot.onText(/\/signup/, async (msg) => {
-  const chatId = msg.chat.id;
+// Handle button actions
+bot.on("message", (msg) => {
+    const chatId = msg.chat.id.toString();
+    const text = msg.text;
 
-  if (users[chatId]?.signedUp) {
-    await bot.sendMessage(chatId, `You already have an account. Just /login.`);
-    return;
-  }
+    if (text.startsWith("/")) return;
 
-  users[chatId] = { signedUp: true, isConnected: false, partnerId: null };
-  await bot.sendMessage(chatId, `Signup successful! 🎉 Now /login to continue.`);
-});
+    addUser(chatId);
 
-// Login
-bot.onText(/\/login/, async (msg) => {
-  const chatId = msg.chat.id;
+    if (text === "🔍 Find") {
+        const now = Date.now();
+        if (cooldowns[chatId] && now - cooldowns[chatId] < COOLDOWN_TIME) {
+            bot.sendMessage(chatId, "⏳ Please wait before trying again.", fixedButtons);
+            return;
+        }
+        cooldowns[chatId] = now;
 
-  if (!users[chatId]?.signedUp) {
-    await bot.sendMessage(chatId, `You don't have an account. Please /signup first.`);
-    return;
-  }
+        if (users[chatId].isConnected) {
+            bot.sendMessage(chatId, "⚠️ You are already connected. Click ❌ Stop to end the chat.", fixedButtons);
+            return;
+        }
 
-  await sendHome(chatId);
-});
+        const matchId = findAvailableUser(chatId);
+        if (matchId) {
+            users[chatId].isConnected = true;
+            users[chatId].partner = matchId;
 
-// Home Interface
-async function sendHome(chatId) {
-  await bot.sendMessage(chatId, `You are logged in. Click "Connect" to find a stranger!`, {
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "🔗 Connect", callback_data: 'connect' }
-      ]]
-    }
-  });
-}
+            users[matchId].isConnected = true;
+            users[matchId].partner = chatId;
 
-// Handle button clicks
-bot.on('callback_query', async (callbackQuery) => {
-  const { message, data } = callbackQuery;
-  const chatId = message.chat.id;
+            saveUsers();
 
-  if (data === 'connect') {
-    if (users[chatId].isConnected) {
-      await bot.sendMessage(chatId, `You're already connected!`);
-      return;
-    }
-    await findPartner(chatId);
-  }
-
-  if (data === 'disconnect') {
-    await disconnect(chatId);
-  }
-});
-
-// Find a partner
-async function findPartner(chatId) {
-  if (waitingUsers.length > 0) {
-    const partnerId = waitingUsers.shift();
-
-    if (!users[partnerId]) {
-      // partner disconnected before matching
-      return await findPartner(chatId);
+            bot.sendMessage(chatId, "✅ You're now connected! Say hi.", fixedButtons);
+            bot.sendMessage(matchId, "✅ You're now connected! Say hi.", fixedButtons);
+        } else {
+            bot.sendMessage(chatId, "❌ No users are available right now. Try again later.", fixedButtons);
+        }
+        return;
     }
 
-    users[chatId].isConnected = true;
-    users[chatId].partnerId = partnerId;
+    if (text === "❌ Stop") {
+        if (!users[chatId].isConnected) {
+            bot.sendMessage(chatId, "⚠️ You're not connected to anyone.", fixedButtons);
+            return;
+        }
 
-    users[partnerId].isConnected = true;
-    users[partnerId].partnerId = chatId;
+        const partnerId = users[chatId].partner;
 
-    await bot.sendMessage(chatId, `✅ Connected! Say hi to your stranger!`, disconnectMarkup());
-    await bot.sendMessage(partnerId, `✅ Connected! Say hi to your stranger!`, disconnectMarkup());
-  } else {
-    waitingUsers.push(chatId);
-    await bot.sendMessage(chatId, `Waiting for a stranger to connect...`);
-  }
-}
+        users[chatId].isConnected = false;
+        users[chatId].partner = null;
 
-// Disconnect from partner
-async function disconnect(chatId) {
-  const partnerId = users[chatId]?.partnerId;
+        if (partnerId && users[partnerId]) {
+            users[partnerId].isConnected = false;
+            users[partnerId].partner = null;
+            bot.sendMessage(partnerId, "🚫 Your chat partner has disconnected.", fixedButtons);
+        }
 
-  if (partnerId && users[partnerId]) {
-    users[partnerId].isConnected = false;
-    users[partnerId].partnerId = null;
-
-    await bot.sendMessage(partnerId, `🚫 Your partner disconnected.`, homeMarkup());
-  }
-
-  users[chatId].isConnected = false;
-  users[chatId].partnerId = null;
-
-  await bot.sendMessage(chatId, `🚫 Disconnected.`, homeMarkup());
-}
-
-// Inline keyboards
-function homeMarkup() {
-  return {
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "🔗 Connect", callback_data: 'connect' }
-      ]]
+        saveUsers();
+        bot.sendMessage(chatId, "✅ You have disconnected.", fixedButtons);
+        return;
     }
-  };
-}
 
-function disconnectMarkup() {
-  return {
-    reply_markup: {
-      inline_keyboard: [[
-        { text: "❌ Disconnect", callback_data: 'disconnect' }
-      ]]
+    // Forward messages
+    if (users[chatId] && users[chatId].isConnected) {
+        const partnerId = users[chatId].partner;
+        if (partnerId && users[partnerId] && users[partnerId].isConnected) {
+            bot.sendMessage(partnerId, text);
+        } else {
+            bot.sendMessage(chatId, "⚠️ Your partner has disconnected.", fixedButtons);
+            users[chatId].isConnected = false;
+            users[chatId].partner = null;
+            saveUsers();
+        }
     }
-  };
-}
-
-// Handling messages
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-
-  // Ignore system messages like button clicks
-  if (msg.text.startsWith('/')) return;
-
-  if (!users[chatId]?.isConnected) {
-    await bot.sendMessage(chatId, `You are not connected to anyone. Click "Connect" first.`);
-    return;
-  }
-
-  const partnerId = users[chatId].partnerId;
-
-  if (partnerId && users[partnerId]) {
-    await bot.sendMessage(partnerId, msg.text);
-  } else {
-    await bot.sendMessage(chatId, `Your partner is no longer available. Please /connect again.`);
-    users[chatId].isConnected = false;
-    users[chatId].partnerId = null;
-  }
 });
