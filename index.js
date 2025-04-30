@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const express = require("express");
 
-const TOKEN = "7129991993:AAG-_X8hZv7R89w4aoK1TE2TvC8Ir29xxvs";
+const TOKEN = "BOT-TOKEN";
 const bot = new TelegramBot(TOKEN);
 const app = express();
 app.use(express.json());
