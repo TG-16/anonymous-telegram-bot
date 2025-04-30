@@ -8,7 +8,7 @@ const bot = new TelegramBot(TOKEN);
 const app = express();
 app.use(express.json());
 
-const URL = process.env.BOT_URL || "https://yourdomain.com"; // Replace with your actual domain
+const URL = process.env.BOT_URL || "https://telegram-anonymous-chat-i3zq.onrender.com"; // Replace with your actual domain
 bot.setWebHook(`${URL}/bot${TOKEN}`);
 
 const usersFilePath = path.join(__dirname, "users.json");
