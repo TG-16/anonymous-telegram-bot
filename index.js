@@ -1,16 +1,21 @@
 const TelegramBot = require("node-telegram-bot-api");
 const fs = require("fs");
 const path = require("path");
+const express = require("express");
 
 const TOKEN = "7129991993:AAG-_X8hZv7R89w4aoK1TE2TvC8Ir29xxvs";
-const bot = new TelegramBot(TOKEN, { polling: true });
+const bot = new TelegramBot(TOKEN);
+const app = express();
+app.use(express.json());
+
+const URL = process.env.BOT_URL || "https://yourdomain.com"; // Replace with your actual domain
+bot.setWebHook(`${URL}/bot${TOKEN}`);
 
 const usersFilePath = path.join(__dirname, "users.json");
 let users = loadUsers();
 let cooldowns = {};
 const COOLDOWN_TIME = 10000; // 10 seconds
 
-// Fixed keyboard buttons
 const fixedButtons = {
     reply_markup: {
         keyboard: [
@@ -22,7 +27,6 @@ const fixedButtons = {
     }
 };
 
-// Load users from file
 function loadUsers() {
     if (fs.existsSync(usersFilePath)) {
         const data = fs.readFileSync(usersFilePath, "utf8");
@@ -31,12 +35,10 @@ function loadUsers() {
     return {};
 }
 
-// Save users to file
 function saveUsers() {
     fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2));
 }
 
-// Add new user if not exists
 function addUser(userId) {
     if (!users[userId]) {
         users[userId] = {
@@ -48,7 +50,6 @@ function addUser(userId) {
     }
 }
 
-// Find available user to match with
 function findAvailableUser(excludeId) {
     const userIds = Object.keys(users);
     for (let id of userIds) {
@@ -59,7 +60,6 @@ function findAvailableUser(excludeId) {
     return null;
 }
 
-// Start command
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id.toString();
     addUser(chatId);
@@ -67,13 +67,11 @@ bot.onText(/\/start/, (msg) => {
     bot.sendMessage(chatId, "👋 Welcome to Anonymous Chat!\n\nUse 🔍 Find to connect with someone, or ❌ Stop to end the chat.", fixedButtons);
 });
 
-// Handle button actions
 bot.on("message", (msg) => {
     const chatId = msg.chat.id.toString();
     const text = msg.text;
 
     if (text.startsWith("/")) return;
-
     addUser(chatId);
 
     if (text === "🔍 Find") {
@@ -143,15 +141,18 @@ bot.on("message", (msg) => {
     }
 });
 
-
-const express = require('express');
-const app = express();
-
-app.get('/', (req, res) => {
-    res.send('Bot is running');
+// Express endpoint for Telegram WebHook
+app.post(`/bot${TOKEN}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
 });
 
-app.listen(process.env.PORT || 3000, () => {
-    console.log('Server is up');
+// Health check route
+app.get("/", (req, res) => {
+    res.send("Bot is running with webhooks!");
 });
 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log("Express server is up and running.");
+});
