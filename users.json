@@ -1,17 +1,3 @@
 {
-  "679619134": {
-    "id": "679619134",
-    "isConnected": true,
-    "partner": "1128428764"
-  },
-  "1128428764": {
-    "id": "1128428764",
-    "isConnected": true,
-    "partner": "679619134"
-  },
-  "6682585727": {
-    "id": "6682585727",
-    "isConnected": false,
-    "partner": null
-  }
+
 }
