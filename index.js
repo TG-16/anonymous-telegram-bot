@@ -2,8 +2,10 @@ const TelegramBot = require("node-telegram-bot-api");
 const fs = require("fs");
 const path = require("path");
 const express = require("express");
+const env = require("dotenv");
+env.config();
 
-const TOKEN = "BOT-TOKEN";
+const TOKEN = env.process.TOKEN;
 const bot = new TelegramBot(TOKEN);
 const app = express();
 app.use(express.json());
